@@ -35,12 +35,14 @@ type Opts struct {
 	adid    string
 	dvid    string
 }
+
 //Rename loaded file
 func dotRename(path string) {
 	newFilename := "." + filepath.Base(path)
 	newPath := filepath.Join(filepath.Dir(path), newFilename)
 	os.Rename(path, newPath)
 }
+
 //Upload data in Memcache
 func insertAppsinstalled(memcAddr string, appsinstalled *AppInstalled, dryRun bool) bool {
 	key := appsinstalled.devType + ":" + appsinstalled.devId
@@ -69,6 +71,7 @@ func insertAppsinstalled(memcAddr string, appsinstalled *AppInstalled, dryRun bo
 	return false
 
 }
+
 //Parse read string from file
 func parseAppsinstalled(line string) (*AppInstalled, error) {
 	line_parts := strings.Split(strings.TrimSpace(line), "\t")
@@ -105,6 +108,7 @@ func parseAppsinstalled(line string) (*AppInstalled, error) {
 		apps:    apps,
 	}, nil
 }
+
 //Handle file
 func fileHandler(filePath string, deviceMemc map[string]string, NormalErrRate float64, dry bool, wg *sync.WaitGroup) {
 	defer wg.Done()
@@ -153,6 +157,7 @@ func fileHandler(filePath string, deviceMemc map[string]string, NormalErrRate fl
 	}
 
 }
+
 //Read console params
 func consoleRead() Opts {
 	opts := Opts{}
@@ -177,7 +182,6 @@ func main() {
 		"adid": opts.adid,
 		"dvid": opts.dvid,
 	}
-	opts.dry = true
 	files, _ := filepath.Glob(opts.pattern)
 
 	for _, file := range files {
