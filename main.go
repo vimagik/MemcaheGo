@@ -44,7 +44,7 @@ func dotRename(path string) {
 }
 
 //Upload data in Memcache
-func insertAppsinstalled(memcAddr string, appsinstalled *AppInstalled, dryRun bool) bool {
+func insertAppsinstalled(memcClient *memcache.Client, appsinstalled *AppInstalled, dryRun bool) bool {
 	key := appsinstalled.devType + ":" + appsinstalled.devId
 	ua := msg.UserApps{}
 	ua.Lat = &appsinstalled.lat
@@ -56,13 +56,12 @@ func insertAppsinstalled(memcAddr string, appsinstalled *AppInstalled, dryRun bo
 		return false
 	}
 	if dryRun {
-		log.Printf("%s - %s -> %s\n", memcAddr, key, ua)
+		log.Printf("%s -> %s\n", key, ua.Apps)
 		return true
 	} else {
-		memc := memcache.New(memcAddr)
 		item := &memcache.Item{Key: key, Value: []byte(packed)}
 		for i := 0; i < 5; i++ {
-			if err := memc.Set(item); err == nil {
+			if err := memcClient.Set(item); err == nil {
 				return true
 			}
 			time.Sleep(2 * time.Second)
@@ -74,24 +73,24 @@ func insertAppsinstalled(memcAddr string, appsinstalled *AppInstalled, dryRun bo
 
 //Parse read string from file
 func parseAppsinstalled(line string) (*AppInstalled, error) {
-	line_parts := strings.Split(strings.TrimSpace(line), "\t")
-	if len(line_parts) < 5 {
+	lineParts := strings.Split(strings.TrimSpace(line), "\t")
+	if len(lineParts) < 5 {
 		return nil, errors.New("Error in format line\t")
 	}
-	devType := line_parts[0]
-	devId := line_parts[1]
+	devType := lineParts[0]
+	devId := lineParts[1]
 	if len(devType) == 0 || len(devId) == 0 {
 		return nil, errors.New("Error in devType or devId\t")
 	}
-	lat, errLat := strconv.ParseFloat(line_parts[2], 64)
-	lon, errLon := strconv.ParseFloat(line_parts[3], 64)
+	lat, errLat := strconv.ParseFloat(lineParts[2], 64)
+	lon, errLon := strconv.ParseFloat(lineParts[3], 64)
 	if errLat != nil || errLon != nil {
 		return nil, errors.New("Invalid geo coords\t")
 	}
 
 	var apps []uint32
 
-	for _, app := range strings.Split(line_parts[4], ",") {
+	for _, app := range strings.Split(lineParts[4], ",") {
 		num, err := strconv.ParseUint(app, 10, 32)
 		if err != nil {
 			log.Printf("Not all user apps are digits: %s", line)
@@ -110,7 +109,7 @@ func parseAppsinstalled(line string) (*AppInstalled, error) {
 }
 
 //Handle file
-func fileHandler(filePath string, deviceMemc map[string]string, NormalErrRate float64, dry bool, wg *sync.WaitGroup) {
+func fileHandler(filePath string, memcClients map[string]*memcache.Client, NormalErrRate float64, dry bool, wg *sync.WaitGroup) {
 	defer wg.Done()
 	defer dotRename(filePath)
 	var processed, errors int
@@ -135,8 +134,8 @@ func fileHandler(filePath string, deviceMemc map[string]string, NormalErrRate fl
 			errors += 1
 			continue
 		}
-		if memcAdr, ok := deviceMemc[appinstalled.devType]; ok {
-			result := insertAppsinstalled(memcAdr, appinstalled, dry)
+		if memcClient, ok := memcClients[appinstalled.devType]; ok {
+			result := insertAppsinstalled(memcClient, appinstalled, dry)
 			if result {
 				processed += 1
 			} else {
@@ -172,6 +171,16 @@ func consoleRead() Opts {
 	return opts
 }
 
+//run Memcache clients
+func runMemcacheClients(deviceAdr map[string]string) map[string]*memcache.Client {
+	clients := map[string]*memcache.Client{}
+	for key, address := range deviceAdr {
+		newClient := memcache.New(address)
+		clients[key] = newClient
+	}
+	return clients
+}
+
 func main() {
 	startTime := time.Now()
 	var wg sync.WaitGroup
@@ -183,10 +192,11 @@ func main() {
 		"dvid": opts.dvid,
 	}
 	files, _ := filepath.Glob(opts.pattern)
+	clients := runMemcacheClients(deviceMemc)
 
 	for _, file := range files {
 		wg.Add(1)
-		go fileHandler(file, deviceMemc, 0.1, opts.dry, &wg)
+		go fileHandler(file, clients, 0.1, opts.dry, &wg)
 	}
 	wg.Wait()
 	fmt.Printf("Elapsed time: %v", time.Since(startTime))
